@@ -10,7 +10,8 @@ import numpy as np
 import os
 import torch
 import torch.nn as nn
-from torch.utils.data import Dataset
+from models import MoindrotCNN
+from utils import MNISTloader
 from torch.utils.data import DataLoader
 torch.cuda.set_device(0)
 
@@ -30,64 +31,8 @@ n_train = len(Xtrain)
 
 
 ytest = np.load(os.path.join(root,'y_test_MNIST.npy'))
-n_test = len(Xtest)
+n_test = len(Xtest)    
 
-class MNISTloader(Dataset) :
-    
-    def __init__(self,X,y) :
-        
-        self.X = X
-        self.y = y
-        
-    def __len__(self) :
-        
-        return len(self.X)
-    
-    
-    def __getitem__(self,idx) : 
-        
-        Xtensor = torch.tensor(self.X[idx],device=torch.device('cuda'),dtype=torch.float)
-        ytensor = torch.tensor(self.y[idx],device=torch.device('cuda'),dtype=torch.long)
-        
-        return [Xtensor,ytensor]
-        
-class MoindrotCNN(nn.Module):
-    def __init__(self,n_channels):
-        super(MoindrotCNN, self ).__init__( )
-
-        self.n_channels = n_channels
-        self.cnn = self.cnn_seq()
-        self.dense = self.dense_seq()
-        
-    def cnn_seq(self) :        
-        
-        seq = nn.Sequential(
-                nn.Conv2d(1, self.n_channels, 3,padding=1),
-                nn.BatchNorm2d(self.n_channels),  
-                nn.ReLU(),
-                nn.MaxPool2d(2),
-                nn.Conv2d(self.n_channels, self.n_channels*2, 3,padding=1),
-                nn.BatchNorm2d(self.n_channels*2),  
-                nn.ReLU(),
-                nn.MaxPool2d(2),
-            )
-        
-        return seq
-
-    def dense_seq(self) :
- 
-        seq = nn.Sequential(nn.Linear(3136,64),nn.Linear(64,10))
-
-        return seq
- 
-                    
-    def forward(self,x) :
-        
-       x = self.cnn(x)
-       x = x.view(-1,3136)
-       x = self.dense(x)
-
-       return x
         
 train_dataset = MNISTloader(Xtrain,ytrain)
 test_dataset = MNISTloader(Xtest,ytest)
