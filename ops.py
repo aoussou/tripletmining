@@ -9,33 +9,64 @@ import torch
 
 def get_triplet_mask(labels):
 
-    indices_equal = torch.eye(labels.shape[0]).cuda()
-    indices_not_equal = 1-indices_equal
+    indices_equal = torch.eye(labels.shape[0]).cuda().bool()
+    indices_not_equal = ~indices_equal
     
-    i_not_equal_j = torch.unsqueeze(indices_not_equal,2).bool()
+    i_not_equal_j = torch.unsqueeze(indices_not_equal,2)
     i_not_equal_k = torch.unsqueeze(indices_not_equal,1).bool()
     j_not_equal_k = torch.unsqueeze(indices_not_equal,0).bool()
     
     distinct_indices = (i_not_equal_j & i_not_equal_k) & j_not_equal_k 
     
-    label_equal = torch.eq(torch.unsqueeze(labels,0),torch.unsqueeze(labels,1))
+    labels_equal = torch.eq(torch.unsqueeze(labels,0),torch.unsqueeze(labels,1))
     
-    i_equal_j = torch.unsqueeze(label_equal, 2)
-    i_equal_k = torch.unsqueeze(label_equal, 1)
+    i_equal_j = torch.unsqueeze(labels_equal, 2)
+    i_equal_k = torch.unsqueeze(labels_equal, 1)
     
     valid_labels = i_equal_j & (~i_equal_k)
-    
-#    print(distinct_indices)
-#    print('*'*10)
-#    print(valid_labels)
-#    
-#    STOP
-    
+
     mask = (distinct_indices & valid_labels)
     mask = mask.type(torch.cuda.FloatTensor)
     return mask
 
-def batch_all_triplet_loss(labels, embeddings, margin):
+
+def get_anchor_positive_triplet_mask(labels):
+    """Return a 2D mask where mask[a, p] is True iff a and p are distinct and have same label.
+    Args:
+        labels: tf.int32 `Tensor` with shape [batch_size]
+    Returns:
+        mask: tf.bool `Tensor` with shape [batch_size, batch_size]
+    """
+    # Check that i and j are distinct
+    indices_equal = torch.eye(labels.shape[0]).cuda().bool()
+    indices_not_equal = ~indices_equal
+
+    # Check if labels[i] == labels[j]
+    # Uses broadcasting where the 1st argument has shape (1, batch_size) and the 2nd (batch_size, 1)
+    labels_equal = torch.eq(torch.unsqueeze(labels,0),torch.unsqueeze(labels,1))
+
+    # Combine the two masks
+    mask = indices_not_equal & labels_equal
+    mask = mask.type(torch.cuda.FloatTensor)
+    return mask
+
+def get_anchor_negative_triplet_mask(labels):
+    """Return a 2D mask where mask[a, n] is True iff a and n have distinct labels.
+    Args:
+        labels: tf.int32 `Tensor` with shape [batch_size]
+    Returns:
+        mask: tf.bool `Tensor` with shape [batch_size, batch_size]
+    """
+    # Check if labels[i] != labels[k]
+    # Uses broadcasting where the 1st argument has shape (1, batch_size) and the 2nd (batch_size, 1)
+    labels_equal = torch.eq(torch.unsqueeze(labels,0),torch.unsqueeze(labels,1))
+
+    mask = ~labels_equal
+    mask = mask.type(torch.cuda.FloatTensor)
+    
+    return mask
+
+def batch_all_triplet_loss(labels, embeddings, margin,squared=False):
     """Build the triplet loss over a batch of embeddings.
     We generate all the valid triplets and average the loss over the positive ones.
     Args:
@@ -51,7 +82,7 @@ def batch_all_triplet_loss(labels, embeddings, margin):
 #    pairwise_dist = torch.sqrt(torch.cdist(embeddings,embeddings.t(), p=2))   
 #    pairwise_dist = pairwise_dist*(1.0 - torch.eye(pairwise_dist.shape[0]).cuda())
     
-    pairwise_dist = pairwise_distances(embeddings)
+    pairwise_dist = pairwise_distances(embeddings,squared=squared)
  
     # shape (batch_size, batch_size, 1)
     anchor_positive_dist = torch.unsqueeze(pairwise_dist, 2)
@@ -81,10 +112,58 @@ def batch_all_triplet_loss(labels, embeddings, margin):
     fraction_positive_triplets = num_positive_triplets / (num_valid_triplets.float() + 1e-16)
 
     # Get final mean triplet loss over the positive valid triplets
-    triplet_loss = torch.sum(triplet_loss) / (num_positive_triplets.float() + 1e-16)
     # very important to do .float(), otherwise the result will be an integer, sometimes exactly 0
+    triplet_loss = torch.sum(triplet_loss) / (num_positive_triplets.float() + 1e-16)
+    
+    # Get final mean triplet loss
+    #triplet_loss = torch.mean(triplet_loss)
     
     return triplet_loss, fraction_positive_triplets
+
+def batch_hard_triplet_loss(labels, embeddings, margin, squared=False):
+    """Build the triplet loss over a batch of embeddings.
+    For each anchor, we get the hardest positive and hardest negative to form a triplet.
+    Args:
+        labels: labels of the batch, of size (batch_size,)
+        embeddings: tensor of shape (batch_size, embed_dim)
+        margin: margin for triplet loss
+        squared: Boolean. If true, output is the pairwise squared euclidean distance matrix.
+                 If false, output is the pairwise euclidean distance matrix.
+    Returns:
+        triplet_loss: scalar tensor containing the triplet loss
+    """
+    # Get the pairwise distance matrix
+    pairwise_dist = pairwise_distances(embeddings, squared=squared)
+
+    # For each anchor, get the hardest positive
+    # First, we need to get a mask for every valid positive (they should have same label)
+    mask_anchor_positive = get_anchor_positive_triplet_mask(labels)
+
+    # We put to 0 any element where (a, p) is not valid (valid if a != p and label(a) == label(p))
+    anchor_positive_dist = mask_anchor_positive * pairwise_dist
+
+    # shape (batch_size, 1)
+    hardest_positive_dist = torch.max(anchor_positive_dist,1, keepdim=True)
+
+    # For each anchor, get the hardest negative
+    # First, we need to get a mask for every valid negative (they should have different labels)
+    mask_anchor_negative = get_anchor_negative_triplet_mask(labels)
+
+    # We add the maximum value in each row to the invalid negatives (label(a) == label(n))
+    max_anchor_negative_dist = torch.max(pairwise_dist, 1, keepdim=True)
+    anchor_negative_dist = pairwise_dist + max_anchor_negative_dist.values * (1.0 - mask_anchor_negative)
+
+    # shape (batch_size,)
+    hardest_negative_dist = torch.min(anchor_negative_dist, 1, keepdim=True)
+
+    # Combine biggest d(a, p) and smallest d(a, n) into final triplet loss
+    tiplet_loss = hardest_positive_dist.values - hardest_negative_dist.values + margin
+    triplet_loss = torch.max(tiplet_loss, torch.tensor(0.0).cuda())
+
+    # Get final mean triplet loss
+    triplet_loss = torch.mean(triplet_loss)
+
+    return triplet_loss
 
 def pairwise_distances(embeddings, squared=False):
     """Compute the 2D matrix of distances between all the embeddings.

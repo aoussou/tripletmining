@@ -15,7 +15,7 @@ from utils import MNISTloader
 from torch.utils.data import DataLoader
 torch.cuda.set_device(0)
 
-from ops import get_triplet_mask, batch_all_triplet_loss
+from ops import batch_all_triplet_loss, batch_hard_triplet_loss
 #root = '../../ssd/mnist/'
 root = '../../data/MNIST/'
 
@@ -66,6 +66,10 @@ for e in range(n_epoch) :
         x,labels = pair        
         embeddings = model.get_embeddings(x)
         loss, fraction_positive_triplets = batch_all_triplet_loss(labels, embeddings, .5)
+
+        #loss = batch_hard_triplet_loss(labels, embeddings, .5)
+        
+        
         #print(loss)
 
         loss.backward()
