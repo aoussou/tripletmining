@@ -69,7 +69,7 @@ def batch_all_triplet_loss(labels, embeddings, margin):
     triplet_loss = mask*triplet_loss
     
     # Remove negative losses (i.e. the easy triplets)
-    triplet_loss = torch.max(triplet_loss, torch.tensor(0).cuda())
+    triplet_loss = torch.max(triplet_loss, torch.tensor(0.0).cuda())
 
     # Count number of positive triplets (where triplet_loss > 0)
     valid_triplets = torch.gt(triplet_loss, 1e-16)
