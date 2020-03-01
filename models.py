@@ -20,7 +20,7 @@ class MoindrotCNN(nn.Module):
         
         seq = nn.Sequential(
                 nn.Conv2d(1, self.n_channels, 3,padding=1),
-                nn.BatchNorm2d(self.n_channels),  
+                nn.BatchNorm2d(self.n_channels,momentum=0.1),  
                 nn.ReLU(),
                 nn.MaxPool2d(2),
                 nn.Conv2d(self.n_channels, self.n_channels*2, 3,padding=1),
