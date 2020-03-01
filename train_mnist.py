@@ -16,7 +16,8 @@ from torch.utils.data import DataLoader
 torch.cuda.set_device(0)
 
 
-root = '../../ssd/mnist/'
+#root = '../../ssd/mnist/'
+root = '../../data/MNIST/'
 
 Xtrain = np.load(os.path.join(root,'X_train_MNIST.npy'))
 Xtrain = np.swapaxes(Xtrain,1,3)
