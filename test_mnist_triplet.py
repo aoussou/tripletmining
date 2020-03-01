@@ -51,7 +51,7 @@ model = model.cuda()
 
 optimizer = torch.optim.Adam(model.parameters(),lr= 1e-3)
 
-n_epoch = 10
+n_epoch = 100
 
 tloss = nn.TripletMarginLoss()
 
@@ -66,7 +66,7 @@ for e in range(n_epoch) :
         x,labels = pair        
         embeddings = model.get_embeddings(x)
         loss, fraction_positive_triplets = batch_all_triplet_loss(labels, embeddings, .5)
-           
+        #print(loss)
 
         loss.backward()
         optimizer.step()
